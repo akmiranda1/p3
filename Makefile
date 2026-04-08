@@ -1,4 +1,4 @@
-EXE = p3
+EXE = peer
 CFLAGS = -Wall
 CXXFLAGS = -Wall
 LDLIBS =
