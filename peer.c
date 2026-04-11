@@ -1,12 +1,14 @@
-/* Project 2 - Peer 2 Peer v1.0
+/* Project 3 - Peer 2 Peer v1.0
  * Developed by Alma Miranda-Rodriguez, Thomas Orozco
- * 8 Mar 2026
+ * 12 Apr 2026
  * Description: Establishes a peer2peer connection with a file registry with 
  * host name or ip address and port number. User selects a peer id to connect with 
  * registry. Once in the registry the user can do the following:
  * 	1) JOIN the registry as a peer (must do so prior to searching or publishin)
  *  2) PUBLISH the names of files in the peer's SharedFiles directory 
  *  3) SEARCH which peer has a file chosen by the user
+ *  4) FETCH connects to a peer for the file chosen and downloads the file to the
+ * 		 application directory
  */
 
 /* This code is an updated version of the sample code from "Computer Networks: A Systems
@@ -156,65 +158,17 @@ int main(int argc, char *argv[]) {
 		}
 
 		/* If user selects "SEARCH"
-		 *  a) read a file name from the terminal
-		 *  b) send a SEARCH request to the registry received packet must convert 
-		 *  c) print the peer info from the SEARCH response or a message that the file was not found
-		 */
-		else if (strncmp("SEARCH\n",user_input,7) == 0) {
-			char search_buf[10] = {0};
-			struct sockaddr_in search_sa;
-			char str[INET_ADDRSTRLEN];
-			uint32_t search_peer_id = 0;
-
-			action_value = SEARCH;
-
-		  printf("Enter a command: "); //User input for file to search
-		  fgets(user_file_input,sizeof(user_file_input),stdin);
-			buf_length = (1+strlen(user_file_input));
-
-		  strncpy(filebuf, user_file_input, strlen(user_file_input)-1);//-1 removes newline character
-      filebuf[strlen(user_file_input)] = '\0';
-
-			// Prepares the buffer to send action, and file name to be searched on the registry
-			memcpy(buf, &action_value, sizeof(action_value));
-			memcpy(buf+1, &filebuf, strlen(user_file_input)+1); // +1 inludes null terminator
-		  if(sendall(s, buf, &buf_length) < 0){
-		    perror("sendall failed");
-		    close(s);
-		    exit(1);
-		  }
-			
-			int nread = recv(s, search_buf, 10, 0);
-	    if(nread < 0){  //Error checker
-	    	perror("recv error");
-	    	close(s);
-	    	exit(1);
-	    }
-	    if(nread > 0){
-	    	// Prints Peer information on successful data received
-        search_sa = searchPeerResults(search_buf, &search_peer_id);
-  			
-				// Implemented inet_ntop from Beejs Guide to Network Programming.
-  			
-				inet_ntop(AF_INET, &(search_sa.sin_addr), str, INET_ADDRSTRLEN);
-
-  			if (search_peer_id == 0 && search_sa.sin_port == 0 && strcmp(str, "0.0.0.0") == 0) {
-					printf("File not indexed by registry\n");
-				} else {
-  			  printf("File found at\n Peer %u \n ", search_peer_id);
-  			  printf("%s:%u\n", str, search_sa.sin_port); // prints "IPv4:[Port]"
-				}
-
-		  }
-		}
-		/* If user selects "FETCH"
+     *  a) read a file name from the terminal
+     *  b) send a SEARCH request to the registry received packet must convert 
+     *  c) print the peer info from the SEARCH response or a message that the file was not found
+		 * If user selects "FETCH"
 		 *  a) read a ﬁle name from the terminal,
      *  b) send a SEARCH request to the registry for the ﬁle,
      *  c) receive the peer information from the registry,
      *  d) send a FETCH request to the identiﬁed peer,
      *  e) receive and save the ﬁle information
 		 */
-		else if (strncmp("FETCH\n",user_input,7) == 0) {
+		else if (strncmp("FETCH\n",user_input,6) == 0 || strncmp("SEARCH\n",user_input,7) == 0) {
 			// printf("%s", user_input);
 			struct sockaddr_in search_sa;
 			char search_buf[10] = {0};
@@ -256,7 +210,7 @@ int main(int argc, char *argv[]) {
 
 				if (search_peer_id == 0 && search_sa.sin_port == 0 && strcmp(addr_str, "0.0.0.0") == 0) {
 					printf("File not indexed by registry\n");
-				} else {
+				} else if (strncmp("FETCH\n",user_input,7) == 0) {
   			  // There is a valid file and a connection to the identified peer is establish
 					sprintf(prt_str, "%u" ,search_sa.sin_port);
 					int peer_s = lookup_and_connect(addr_str,prt_str);
@@ -269,13 +223,16 @@ int main(int argc, char *argv[]) {
 					sendall(peer_s, buf, &buf_length);
 					
 					recv(peer_s, &buf, 1, 0); // Receive first byte used to determine if file was sent
-					size_t n_write = 0;
+
 					if (buf[0] == 0) {
-						// char file_name[strlen(user_file_input)-1];
-						// memcpy(file_name, user_file_input, sizeof(file_name));
-						// Open file here
+						// Opens file or creates on if not found
 						FILE *fd = fopen(user_file_input, "w");
+						if (!fd) {
+							perror("Error opening file");
+							return EXIT_FAILURE;
+						}
 						
+						// Loops the connection with peer until the file has been received entirely
 					  while(1) {
 					    char fetch_buf[4] = {0}; // Reinitializes the buffer as empty to recv
 							int n = recv(peer_s, &fetch_buf, 4, 0);
@@ -286,19 +243,20 @@ int main(int argc, char *argv[]) {
 								perror("Error receiving data");
 								return EXIT_FAILURE;
 							}	else {
-								// This needs to be changed to create a file with the searched filename
-								// Then buffer is then used to write to the file.
-								  n_write += fwrite(fetch_buf, sizeof(char), n, fd);
-					    	// printf("%s", fetch_buf);
-					    	// fflush(stdout);
+								// The fetchbuffer is used to write to the file.
+								fwrite(fetch_buf, sizeof(char), n, fd);
 					    }
 					  }
-						
-						fclose(fd);
 						// Close file here
+						fclose(fd);
 					}
 					close(peer_s); // Closes peer socket when file all entire file is received.
+				} else {
+					 // When the user chose SEARCH instead of FETCH
+					 printf("File found at\n Peer %u \n ", search_peer_id); // prints the Peer id
+  			   printf("%s:%u\n", addr_str, search_sa.sin_port); // prints "IPv4:[Port]"
 				}
+
 			}
 		}
 		 /*If user selects "EXIT"
@@ -447,6 +405,7 @@ uint32_t directoryContents(char *files_in_dir, uint8_t *file_count) {
  * Takes the raw bytes reveived from the registry, parses them in to print
  * out peer id, ip address and port number. If data received is all zeros
  * there is no information on the registry.
+ * Returns a sruct with socket information from the searched peer.
  */
 
 struct sockaddr_in searchPeerResults(char *recvd_buffer, uint32_t *peer_id) {
@@ -471,15 +430,6 @@ struct sockaddr_in searchPeerResults(char *recvd_buffer, uint32_t *peer_id) {
   memcpy(&search_port_num, search_buf+8, 2);  //port number
   sa.sin_port = ntohs(search_port_num);
 
-  // // Implemented inet_ntop from Beejs Guide to Network Programming.
-  // inet_ntop(AF_INET, &(sa.sin_addr), str, INET_ADDRSTRLEN);
-
-  // if (search_peer_id == 0 && sa.sin_port == 0 && strcmp(str, "0.0.0.0") == 0) {
-	// 	printf("File not indexed by registry\n");
-	// } else {
-  //   printf("File found at\n Peer %u \n ", search_peer_id);
-  //   printf("%s:%u\n", str, sa.sin_port); // prints "IPv4:[Port]"
-	// }
 	return sa;
 }
 
