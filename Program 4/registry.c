@@ -151,6 +151,15 @@ int main(int argc, char* argv[]) {
 			      return -1;  
 
           } else if (n_rcvd > 0) {
+            char temp_addr_str[INET_ADDRSTRLEN];
+            for (int i = 0; i < MAX_PENDING; i++){
+                inet_ntop(AF_INET, &(peer_db[i].address.sin_addr), temp_addr_str, INET_ADDRSTRLEN);
+                if (peer_db[i].socket_descriptor == s && (strcmp(temp_addr_str,addr_str) == 0) && (peer_db[i].address.sin_port == addr.sin_port) ) {
+                  peer_joined = true;
+                  valid_peer = i;
+                  break;
+                }
+              }
                 
               memcpy(&action_byte, wrk_buf, sizeof(action_byte));
               // network_byte_s = ntohs(action_byte);
@@ -159,23 +168,30 @@ int main(int argc, char* argv[]) {
 
               /* First byte determines what action the server will take*/
               if (action_byte == JOIN) {
-
                 int empty_db_slot = MAX_PENDING + 1;
-                bool peer_joined = false;
                 memcpy(&peer_bytes, wrk_buf+sizeof(action_byte), sizeof(peer_bytes));
                 network_byte_l = ntohl(peer_bytes);
                 peer_bytes = network_byte_l;
             
-                for (int i = 0; i < MAX_PENDING; i++){
-                  if (peer_db[i].id == -1 && empty_db_slot > MAX_PENDING) {
-                    empty_db_slot = i;
-                  }
-                  if (peer_db[i].id == peer_bytes) {
-                    peer_joined = true;
-                  }
-                }
+                // for (int i = 0; i < MAX_PENDING; i++){
+                //   if (peer_db[i].id == -1 && empty_db_slot > MAX_PENDING) {
+                //     empty_db_slot = i;
+                //   }
+                //   if (peer_db[i].id == peer_bytes) {
+                //     peer_joined = true;
+                //   }
+                // }
+
 
                 if (peer_joined == false) {
+
+                  for (int i = 0; i < MAX_PENDING; i++){
+                    if (peer_db[i].id == -1 && empty_db_slot > MAX_PENDING) {
+                      empty_db_slot = i;
+                      break;
+                    }
+                  }
+
                   peer_db[empty_db_slot].id = peer_bytes;
                   peer_db[empty_db_slot].socket_descriptor = s;
                   peer_db[empty_db_slot].address = addr;
@@ -184,29 +200,17 @@ int main(int argc, char* argv[]) {
                 if (verbose == true) {
                   if (peer_joined == true) {
                     printf("Peer %d cannot JOIN again\n", peer_bytes);
-                    // fflush(stdout);
+                    fflush(stdout);
                   } else {
                     printf("TEST] JOIN %d\n", peer_bytes);
-                    // printf("Peer %d has joined\n%s:%d", peer_bytes, addr_str, addr.sin_port);
                     fflush(stdout);
                   }
                 
                 }
           } else if (action_byte == PUBLISH) {
-              char temp_addr_str[INET_ADDRSTRLEN];
               memcpy(&file_count, wrk_buf+sizeof(action_byte), sizeof(file_count));
               network_byte_l = ntohl(file_count);
               file_count = network_byte_l;
-
-
-              for (int i = 0; i < MAX_PENDING; i++){
-                inet_ntop(AF_INET, &(peer_db[i].address.sin_addr), temp_addr_str, INET_ADDRSTRLEN);
-                if (peer_db[i].socket_descriptor == s && (strcmp(temp_addr_str,addr_str) == 0) && (peer_db[i].address.sin_port == addr.sin_port) ) {
-                  peer_joined = true;
-                  valid_peer = i;
-                  break;
-                }
-              }
 
               if (peer_joined == true){
                 memcpy(&file_list, wrk_buf + sizeof(action_byte) + sizeof(file_count), sizeof(file_list));
@@ -236,23 +240,20 @@ int main(int argc, char* argv[]) {
               }
           } else if (action_byte == SEARCH) {
 
+            // Use wrk_buf to read the filename the peer is asking for
+            
+            peer_db[valid_peer];// <------- Use this to identify which peer is searching
+
+
             // if (verbose == true);
           }     
             
           } else if (n_rcvd == 0) {
-            char temp_addr_str[INET_ADDRSTRLEN];
-            for (int i = 0; i < MAX_PENDING; i++){
-                inet_ntop(AF_INET, &(peer_db[i].address.sin_addr), temp_addr_str, INET_ADDRSTRLEN);
-                if (peer_db[i].socket_descriptor == s && (strcmp(temp_addr_str,addr_str) == 0) && (peer_db[i].address.sin_port == addr.sin_port) ) {
-                  peer_joined = true;
-                  valid_peer = i;
-                  break;
-                }
-              }
-
-            zero_peer(&peer_db[valid_peer]);
-            close(s);
-            FD_CLR(s, &mstrcpy_sockets);
+              zero_peer(&peer_db[valid_peer]);
+              // printf("zeroed %d", peer_db[valid_peer].id); //Used for debugging
+              // fflush(stdout);
+              close(s);
+              FD_CLR(s, &mstrcpy_sockets);
           }             
       }
     }
