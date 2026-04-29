@@ -173,16 +173,7 @@ int main(int argc, char* argv[]) {
                 network_byte_l = ntohl(peer_bytes);
                 peer_bytes = network_byte_l;
             
-                // for (int i = 0; i < MAX_PENDING; i++){
-                //   if (peer_db[i].id == -1 && empty_db_slot > MAX_PENDING) {
-                //     empty_db_slot = i;
-                //   }
-                //   if (peer_db[i].id == peer_bytes) {
-                //     peer_joined = true;
-                //   }
-                // }
-
-
+                
                 if (peer_joined == false) {
 
                   for (int i = 0; i < MAX_PENDING; i++){
