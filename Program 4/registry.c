@@ -127,10 +127,12 @@ int main(int argc, char* argv[]) {
         max_socket = find_max_fd(&mstrcpy_sockets);
       } else {
           uint8_t action_byte;
-          uint32_t peer_bytes;
+          uint32_t peer_id_bytes;
+          uint32_t peer_ip_addr_bytes;
+          uint16_t peer_port_bytes;
           uint32_t file_count;
           uint32_t network_byte_l;
-          // uint16_t network_byte_s;
+          uint16_t network_byte_s;
           char file_list[MAX_FILES*MAX_FILENAME_LEN] = {0};
           char addr_str[INET_ADDRSTRLEN];
           struct sockaddr_in addr;
@@ -169,9 +171,9 @@ int main(int argc, char* argv[]) {
               /* First byte determines what action the server will take*/
               if (action_byte == JOIN) {
                 int empty_db_slot = MAX_PENDING + 1;
-                memcpy(&peer_bytes, wrk_buf+sizeof(action_byte), sizeof(peer_bytes));
-                network_byte_l = ntohl(peer_bytes);
-                peer_bytes = network_byte_l;
+                memcpy(&peer_id_bytes, wrk_buf+sizeof(action_byte), sizeof(peer_id_bytes));
+                network_byte_l = ntohl(peer_id_bytes);
+                peer_id_bytes = network_byte_l;
             
                 
                 if (peer_joined == false) {
@@ -183,17 +185,17 @@ int main(int argc, char* argv[]) {
                     }
                   }
 
-                  peer_db[empty_db_slot].id = peer_bytes;
+                  peer_db[empty_db_slot].id = peer_id_bytes;
                   peer_db[empty_db_slot].socket_descriptor = s;
                   peer_db[empty_db_slot].address = addr;
                 }
           
                 if (verbose == true) {
                   if (peer_joined == true) {
-                    printf("Peer %d cannot JOIN again\n", peer_bytes);
+                    printf("Peer %d cannot JOIN again\n", peer_id_bytes);
                     fflush(stdout);
                   } else {
-                    printf("TEST] JOIN %d\n", peer_bytes);
+                    printf("TEST] JOIN %d\n", peer_id_bytes);
                     fflush(stdout);
                   }
                 
@@ -230,13 +232,75 @@ int main(int argc, char* argv[]) {
                 }
               }
           } else if (action_byte == SEARCH) {
-
-            // Use wrk_buf to read the filename the peer is asking for
+            char file_lookup[MAX_FILENAME_LEN] = {0};
+            int peer_has_file;
+            bool file_found = false;
+            {
+              /* data */
+            };
             
-            peer_db[valid_peer];// <------- Use this to identify which peer is searching
+            // Use wrk_buf to read the filename the peer is asking for.
+            if (peer_joined == true) {
+             
+              strcpy(file_lookup, wrk_buf+sizeof(action_byte));
+              // printf("%s\n", file_lookup);
+              // fflush(stdout);
+              for (int p = 0; p < MAX_PENDING; p++) {
+                if (peer_db[p].id != -1) {
+                  for (int f = 0; f < MAX_FILES; f++) {
+                    if (strcmp(file_lookup,peer_db[p].files[f]) == 0) {
+                      file_found = true;
+                      peer_has_file = p;
+                      break;
+                    }
+                  }
+                  if (file_found == true) {
+                    break;
+                  }
+                }
+              }
 
+              /*Fill buffer with peer information in this order
+               * 4B - Peer ID
+               * 4B - Peer IPv4 Address
+               * 2B - Peer Port number
+               * All must be in Network Byte Oder
+               */
+              if (file_found == true) {
+                peer_id_bytes = peer_db[peer_has_file].id;
+                peer_ip_addr_bytes = peer_db[peer_has_file].address.sin_addr.s_addr;
+                peer_port_bytes = peer_db[peer_has_file].address.sin_port;
+                // send()
+              } else {
+                peer_id_bytes = 0;
+                peer_ip_addr_bytes = 0;
+                peer_port_bytes = 0;
+              }
 
-            // if (verbose == true);
+              int move_buf_index = 0;
+              network_byte_l = htonl(peer_id_bytes);
+              memcpy(wrk_buf+move_buf_index, &network_byte_l, sizeof(network_byte_l));
+              move_buf_index += sizeof(network_byte_l);
+
+              network_byte_l = peer_ip_addr_bytes;
+              memcpy(wrk_buf+move_buf_index, &network_byte_l, sizeof(network_byte_l)); 
+              move_buf_index += sizeof(network_byte_l);
+
+              network_byte_s = peer_port_bytes;
+              memcpy(wrk_buf+move_buf_index, &network_byte_l, sizeof(network_byte_s));
+              move_buf_index += sizeof(network_byte_s);
+              // Send Peer information to this peer
+              //peer_db[valid_peer];// <------- Use this to identify which peer is searching
+  
+              send(peer_db[valid_peer].socket_descriptor, wrk_buf, move_buf_index, 0);
+              if (verbose == true) {
+                inet_ntop(AF_INET, &(peer_db[peer_has_file].address.sin_addr), addr_str, INET_ADDRSTRLEN);
+                printf("TEST} SEARCH %s %d %s:%d\n", file_lookup, peer_db[peer_has_file].id, addr_str, peer_db[peer_has_file].address.sin_port);
+                fflush(stdout);
+              }
+            }
+            
+
           }     
             
           } else if (n_rcvd == 0) {
