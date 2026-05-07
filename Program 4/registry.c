@@ -125,7 +125,7 @@ int main(int argc, char* argv[]) {
         s_accept = accept(s, NULL, NULL);
         FD_SET(s_accept, &mstrcpy_sockets);
         max_socket = find_max_fd(&mstrcpy_sockets);
-      } else {
+      } else {  //variables used to handle peer request
           uint8_t action_byte;
           uint32_t peer_id_bytes;
           uint32_t peer_ip_addr_bytes;
@@ -142,21 +142,21 @@ int main(int argc, char* argv[]) {
           bool peer_joined = false;
           
 
-          int ret = getpeername(s, (struct sockaddr*)&addr, &len);
-          inet_ntop(AF_INET, &(addr.sin_addr), addr_str, INET_ADDRSTRLEN);
+          int ret = getpeername(s, (struct sockaddr*)&addr, &len);  //get the peer address info
+          inet_ntop(AF_INET, &(addr.sin_addr), addr_str, INET_ADDRSTRLEN);  //convert IP adress to readable string format
 
-          n_rcvd =  recv(s, wrk_buf, sizeof(wrk_buf), 0);
+          n_rcvd =  recv(s, wrk_buf, sizeof(wrk_buf), 0);   //receive data from the peer into buffer
 
           if (n_rcvd < 0) {
             close(s);
             perror("ERROR in recv() call");
 			      return -1;  
 
-          } else if (n_rcvd > 0) {
-            char temp_addr_str[INET_ADDRSTRLEN];
-            for (int i = 0; i < MAX_PENDING; i++){
-                inet_ntop(AF_INET, &(peer_db[i].address.sin_addr), temp_addr_str, INET_ADDRSTRLEN);
-                if (peer_db[i].socket_descriptor == s && (strcmp(temp_addr_str,addr_str) == 0) && (peer_db[i].address.sin_port == addr.sin_port) ) {
+          } else if (n_rcvd > 0) { //data was received from peer
+            char temp_addr_str[INET_ADDRSTRLEN];  //stores peer IP as text
+            for (int i = 0; i < MAX_PENDING; i++){  // check if this peer already joined
+                inet_ntop(AF_INET, &(peer_db[i].address.sin_addr), temp_addr_str, INET_ADDRSTRLEN); //convert saved peer IP to readable joined
+                if (peer_db[i].socket_descriptor == s && (strcmp(temp_addr_str,addr_str) == 0) && (peer_db[i].address.sin_port == addr.sin_port) ) {  // match peer by socket, IP and port
                   peer_joined = true;
                   valid_peer = i;
                   break;
@@ -170,21 +170,21 @@ int main(int argc, char* argv[]) {
 
               /* First byte determines what action the server will take*/
               if (action_byte == JOIN) {
-                int empty_db_slot = MAX_PENDING + 1;
-                memcpy(&peer_id_bytes, wrk_buf+sizeof(action_byte), sizeof(peer_id_bytes));
-                network_byte_l = ntohl(peer_id_bytes);
+                int empty_db_slot = MAX_PENDING + 1;  //stores open peer slot
+                memcpy(&peer_id_bytes, wrk_buf+sizeof(action_byte), sizeof(peer_id_bytes));  //get peer ID from message
+                network_byte_l = ntohl(peer_id_bytes);  //convert peer ID from network oder to host order
                 peer_id_bytes = network_byte_l;
             
                 
                 if (peer_joined == false) {
 
-                  for (int i = 0; i < MAX_PENDING; i++){
+                  for (int i = 0; i < MAX_PENDING; i++){  //find an empty spot in peer database
                     if (peer_db[i].id == -1 && empty_db_slot > MAX_PENDING) {
                       empty_db_slot = i;
                       break;
                     }
                   }
-
+                  // save peer information
                   peer_db[empty_db_slot].id = peer_id_bytes;
                   peer_db[empty_db_slot].socket_descriptor = s;
                   peer_db[empty_db_slot].address = addr;
@@ -192,35 +192,35 @@ int main(int argc, char* argv[]) {
           
                 if (verbose == true) {
                   if (peer_joined == true) {
-                    printf("Peer %d cannot JOIN again\n", peer_id_bytes);
+                    printf("Peer %d cannot JOIN again\n", peer_id_bytes);//peer alreadu joined before
                     fflush(stdout);
                   } else {
-                    printf("TEST] JOIN %d\n", peer_id_bytes);
+                    printf("TEST] JOIN %d\n", peer_id_bytes); // peer has joined successfully 
                     fflush(stdout);
                   }
                 
                 }
-          } else if (action_byte == PUBLISH) {
-              memcpy(&file_count, wrk_buf+sizeof(action_byte), sizeof(file_count));
+          } else if (action_byte == PUBLISH) { //handle PUBLISH request
+              memcpy(&file_count, wrk_buf+sizeof(action_byte), sizeof(file_count)); // get number of files being publishing 
               network_byte_l = ntohl(file_count);
               file_count = network_byte_l;
 
-              if (peer_joined == true){
-                memcpy(&file_list, wrk_buf + sizeof(action_byte) + sizeof(file_count), sizeof(file_list));
-                int char_count_start = 0;
-                int temp_file_counter = 0;
-                for (int k = 0; k < sizeof(file_list); k ++) {
+              if (peer_joined == true){ //only joined peers can publish files
+                memcpy(&file_list, wrk_buf + sizeof(action_byte) + sizeof(file_count), sizeof(file_list)); //copy file list from message buffer
+                int char_count_start = 0; //start of current filename
+                int temp_file_counter = 0; //number of file saved
+                for (int k = 0; k < sizeof(file_list); k ++) {  //go through file list and split names by null char
                   if (file_list[k] == '\0') {
                     strcpy(peer_db[valid_peer].files[temp_file_counter], file_list+char_count_start);
                     temp_file_counter++;
                     char_count_start = k+1;
                   }
 
-                  if (temp_file_counter == file_count) {
+                  if (temp_file_counter == file_count) { //stops after all files are saved
                     break;
                   }
                 }
-                if (verbose == true) {
+                if (verbose == true) {  //print publish info in test mode
                   printf("TEST] PUBLISH %d", file_count);
                   fflush(stdout);
                   for (int i = 0; i < file_count; i++) {
@@ -230,11 +230,13 @@ int main(int argc, char* argv[]) {
                   printf("\n");
                   fflush(stdout);
                 }
-              }
-          } else if (action_byte == SEARCH) {
-            char file_lookup[MAX_FILENAME_LEN] = {0};
+              }     
+          // handles SEARCH request
+          } else if (action_byte == SEARCH) {         
+            char file_lookup[MAX_FILENAME_LEN] = {0}; //store file name to search
+                                                  
             int peer_has_file;
-            bool file_found = false;
+            bool file_found = false; 
             {
               /* data */
             };
@@ -276,26 +278,26 @@ int main(int argc, char* argv[]) {
                 peer_ip_addr_bytes = 0;
                 peer_port_bytes = 0;
               }
-
+              //build responce buffer
               int move_buf_index = 0;
-              network_byte_l = htonl(peer_id_bytes);
+              network_byte_l = htonl(peer_id_bytes);  //convert peer ID to network bye order and copy to buffer
               memcpy(wrk_buf+move_buf_index, &network_byte_l, sizeof(network_byte_l));
               move_buf_index += sizeof(network_byte_l);
 
-              network_byte_l = peer_ip_addr_bytes;
+              network_byte_l = peer_ip_addr_bytes; // copy peer ID address to buffer 
               memcpy(wrk_buf+move_buf_index, &network_byte_l, sizeof(network_byte_l)); 
               move_buf_index += sizeof(network_byte_l);
 
-              network_byte_s = peer_port_bytes;
+              network_byte_s = peer_port_bytes; //copy peer port to buffer
               memcpy(wrk_buf+move_buf_index, &network_byte_l, sizeof(network_byte_s));
               move_buf_index += sizeof(network_byte_s);
               // Send Peer information to this peer
               //peer_db[valid_peer];// <------- Use this to identify which peer is searching
   
-              send(peer_db[valid_peer].socket_descriptor, wrk_buf, move_buf_index, 0);
-              if (verbose == true) {
+              send(peer_db[valid_peer].socket_descriptor, wrk_buf, move_buf_index, 0);  //send search result back to the requseting peer
+              if (verbose == true) {   // if its true then this if statement woll convert IP address to readadle string 
                 inet_ntop(AF_INET, &(peer_db[peer_has_file].address.sin_addr), addr_str, INET_ADDRSTRLEN);
-                printf("TEST} SEARCH %s %d %s:%d\n", file_lookup, peer_db[peer_has_file].id, addr_str, peer_db[peer_has_file].address.sin_port);
+                printf("TEST} SEARCH %s %d %s:%d\n", file_lookup, peer_db[peer_has_file].id, addr_str, peer_db[peer_has_file].address.sin_port); // show the search results
                 fflush(stdout);
               }
             }
@@ -316,17 +318,17 @@ int main(int argc, char* argv[]) {
   return 0;
 }
 
-int find_max_fd(const fd_set *fs) {
-	int ret = 0;
-	for(int i = FD_SETSIZE-1; i>=0 && ret==0; --i){
-		if( FD_ISSET(i, fs) ){
-			ret = i;
+int find_max_fd(const fd_set *fs) { //find the largest socket in the set
+	int ret = 0;  //will stor the max
+	for(int i = FD_SETSIZE-1; i>=0 && ret==0; --i){   // loop from highest possible fd down to 0
+		if( FD_ISSET(i, fs) ){ //checks if socket is in the set
+			ret = i; // found the highst one
 		}
 	}
 	return ret;
 }
 
-
+//create and start a server socket
 int bind_and_listen( const char *service ) {
 	struct addrinfo hints;
 	struct addrinfo *rp, *result;
@@ -370,13 +372,13 @@ int bind_and_listen( const char *service ) {
 
 	return s;
 }
-
+//this clears the peer entery and sets it to "empty"
 void zero_peer(struct peer_entry *empty_peer) {
-  empty_peer->id = -1;
-  empty_peer->socket_descriptor = -1;
-  inet_pton(AF_INET, "0.0.0.0", &empty_peer->address.sin_addr);
-  char erase_file_name[MAX_FILENAME_LEN] = {0};
+  empty_peer->id = -1;  //the ID is marked as unused
+  empty_peer->socket_descriptor = -1; // no active socket
+  inet_pton(AF_INET, "0.0.0.0", &empty_peer->address.sin_addr);   // this means that there no more address
+  char erase_file_name[MAX_FILENAME_LEN] = {0}; //clear all files of peer
   for (int i = 0; i < MAX_FILES; i++) {
-    memcpy(&empty_peer->files[i],erase_file_name, sizeof(erase_file_name));
+    memcpy(&empty_peer->files[i],erase_file_name, sizeof(erase_file_name)); // fill each filename with 0
   }
 }
